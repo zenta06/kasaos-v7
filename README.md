@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔒 KasaOS v7.0
+# 🔒 KasaOS v7.0 (https://passwordmenager.netlify.app/)
 ### *Next-Generation Zero-Knowledge Password Vault*
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
