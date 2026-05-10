@@ -15,46 +15,39 @@
 
 </div>
 
-## 🛠️ Teknolojik Altyapı
+## 🚀 Özellikler (Highlights)
 
-| Katman | Teknoloji | Görev |
+| 🛡️ Güvenlik | ⚡ Performans | 🎨 Tasarım |
 | :--- | :--- | :--- |
-| **Framework** | `Next.js 15` | Modern Web Altyapısı |
-| **Database** | `Firebase` | Gerçek Zamanlı Bulut Veritabanı |
-| **Security** | `AES-256` | Uçtan Uca Şifreleme |
+| **AES-256 Şifreleme** ile uçtan uca veri koruması. | **Next.js 15** ile ultra hızlı sayfa geçişleri. | **Cyber-Dark** tema ile göz yormayan arayüz. |
+| **Zero-Knowledge** mimarisi; anahtar sizde kalır. | **Firestore** ile anlık veri senkronizasyonu. | **Framer Motion** ile akıcı mikro etkileşimler. |
+| **Firebase Auth** ile güvenli giriş protokolü. | **Zayıf Şifre Analizi** ile gerçek zamanlı uyarılar. | **Responsive** tam mobil uyumlu yapı. |
 
 ---
 
-## 🚀 Hızlı Kurulum Rehberi
+## 📂 Proje Yapısı (Architecture)
 
-Tüm kurulumu tek seferde kopyalayıp sırasıyla uygulayabilirsiniz:
+```text
+kasaos-v7/
+├── 📁 src/
+│   ├── 📁 app/           # Sayfa yönlendirmeleri ve API rotaları
+│   ├── 📁 components/    # UI kartları, formlar ve animasyonlar
+│   └── 📁 lib/           # Firebase konfigürasyonu ve kripto mantığı
+├── 📁 public/            # İkonlar, logolar ve statik varlıklar
+├── 📄 .env.local         # Özel güvenlik anahtarları (Gizli)
+└── 📄 tailwind.config.ts # Stil özelleştirmeleri
 
 ```bash
-# 1️⃣ Projeyi Hazırlayın
+# 1. Depoyu Klonla ve Klasöre Gir
 git clone [https://github.com/zenta06/kasaos-v7.git](https://github.com/zenta06/kasaos-v7.git)
 cd kasaos-v7
 
-# 2️⃣ Bağımlılıkları Yükleyin
+# 2. Gerekli Kütüphaneleri Yükle
 npm install
 npm install --save-dev @types/crypto-js
 
-# 3️⃣ Ortam Değişkenlerini Tanımlayın
-# Ana dizinde bir .env.local dosyası oluşturun ve içine şunları ekleyin:
-# NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyAnL5...
-# NEXT_PUBLIC_FIREBASE_PROJECT_ID=password-archive-41099
-# NEXT_PUBLIC_VAULT_KEY=senin_gizli_anahtarin_2026
-
-# 4️⃣ Geliştirme Sunucusunu Başlatın
+# 3. Uygulamayı Başlat
 npm run dev
 
----
-
-## 📂 Proje Ağaç Yapısı (Folder Structure)
-
-kasaos-v7/
-├── src/
-│   ├── app/              # Next.js Sayfaları ve API'ler
-│   ├── components/       # UI Bileşenleri (Kartlar, Butonlar)
-│   └── lib/              # Firebase ve Şifreleme Ayarları
-├── public/               # İkonlar ve Görseller
-└── .env.local.example    # Örnek Güvenlik Anahtarları
+[!TIP]
+Uygulamanın çalışması için .env.local dosyanızda Firebase API bilgilerinin ve NEXT_PUBLIC_VAULT_KEY değişkeninin tanımlı olduğundan emin olun.
