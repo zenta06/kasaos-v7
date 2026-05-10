@@ -47,9 +47,10 @@ npm install --save-dev @types/crypto-js
 # 4️⃣ Geliştirme Sunucusunu Başlatın
 npm run dev
 
-##
+---
 
-# 📂 Proje Ağaç Yapısı (Folder Structure)
+## 📂 Proje Ağaç Yapısı (Folder Structure)
+
 kasaos-v7/
 ├── src/
 │   ├── app/              # Next.js Sayfaları ve API'ler
