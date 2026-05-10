@@ -15,39 +15,34 @@
 
 </div>
 
-## 🚀 Özellikler (Highlights)
+## 🛠️ Teknolojik Altyapı
 
-| 🛡️ Güvenlik | ⚡ Performans | 🎨 Tasarım |
+| Katman | Teknoloji | Görev |
 | :--- | :--- | :--- |
-| **AES-256 Şifreleme** ile uçtan uca veri koruması. | **Next.js 15** ile ultra hızlı sayfa geçişleri. | **Cyber-Dark** tema ile göz yormayan arayüz. |
-| **Zero-Knowledge** mimarisi; anahtar sizde kalır. | **Firestore** ile anlık veri senkronizasyonu. | **Framer Motion** ile akıcı mikro etkileşimler. |
-| **Firebase Auth** ile güvenli giriş protokolü. | **Zayıf Şifre Analizi** ile gerçek zamanlı uyarılar. | **Responsive** tam mobil uyumlu yapı. |
+| **Framework** | `Next.js 15` | Modern Web Altyapısı |
+| **Database** | `Firebase` | Gerçek Zamanlı Bulut Veritabanı |
+| **Security** | `AES-256` | Uçtan Uca Şifreleme |
 
 ---
 
-## 📂 Proje Yapısı (Architecture)
+## 🚀 Hızlı Kurulum Rehberi
 
-```text
-kasaos-v7/
-├── 📁 src/
-│   ├── 📁 app/           # Sayfa yönlendirmeleri ve API rotaları
-│   ├── 📁 components/    # UI kartları, formlar ve animasyonlar
-│   └── 📁 lib/           # Firebase konfigürasyonu ve kripto mantığı
-├── 📁 public/            # İkonlar, logolar ve statik varlıklar
-├── 📄 .env.local         # Özel güvenlik anahtarları (Gizli)
-└── 📄 tailwind.config.ts # Stil özelleştirmeleri
+Tüm kurulumu tek seferde kopyalayıp sırasıyla uygulayabilirsiniz:
 
 ```bash
-# 1. Depoyu Klonla ve Klasöre Gir
+# 1️⃣ Projeyi Hazırlayın
 git clone [https://github.com/zenta06/kasaos-v7.git](https://github.com/zenta06/kasaos-v7.git)
 cd kasaos-v7
 
-# 2. Gerekli Kütüphaneleri Yükle
+# 2️⃣ Bağımlılıkları Yükleyin
 npm install
 npm install --save-dev @types/crypto-js
 
-# 3. Uygulamayı Başlat
-npm run dev
+# 3️⃣ Ortam Değişkenlerini Tanımlayın
+# Ana dizinde bir .env.local dosyası oluşturun ve içine şunları ekleyin:
+# NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyAnL5...
+# NEXT_PUBLIC_FIREBASE_PROJECT_ID=password-archive-41099
+# NEXT_PUBLIC_VAULT_KEY=senin_gizli_anahtarin_2026
 
-[!TIP]
-Uygulamanın çalışması için .env.local dosyanızda Firebase API bilgilerinin ve NEXT_PUBLIC_VAULT_KEY değişkeninin tanımlı olduğundan emin olun.
+# 4️⃣ Geliştirme Sunucusunu Başlatın
+npm run dev
