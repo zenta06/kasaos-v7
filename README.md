@@ -31,7 +31,7 @@ Tüm kurulumu tek seferde kopyalayıp sırasıyla uygulayabilirsiniz:
 
 ```bash
 # 1️⃣ Projeyi Hazırlayın
-git clone [https://github.com/zenta06/kasaos-v7.git](https://github.com/zenta06/kasaos-v7.git)
+git clone https://github.com/zenta06/kasaos-v7.git
 cd kasaos-v7
 
 # 2️⃣ Bağımlılıkları Yükleyin
