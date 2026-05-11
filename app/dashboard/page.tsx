@@ -106,7 +106,7 @@ export default function Dashboard() {
   const [visiblePassId, setVisiblePassId] = useState<string | null>(null);
 
   const router = useRouter();
-  process.env.NEXT_PUBLIC_VAULT_KEY;
+  const VAULT_KEY = process.env.NEXT_PUBLIC_VAULT_KEY as string;
   const categories = ['Genel', 'Sosyal', 'İş', 'Finans', 'Alışveriş'];
   const entryTypes = ['E-posta / Şifre', 'Banka / Kart'];
   const reminderOptions = ['Yok', '30 Gün', '60 Gün', '90 Gün'];
