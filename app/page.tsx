@@ -126,7 +126,7 @@ export default function Home() {
     setLoading(true);
     try {
       await sendPasswordResetEmail(auth, email);
-      setSuccess('Şifre sıfırlama bağlantısı gönderildi.');
+      setSuccess('Şifre sıfırlama bağlantısı gönderildi. Maili göremezseniz spam kutunuzu kontrol etmeyi unutmayın.');
     } catch (err: any) {
       setError('Sıfırlama bağlantısı gönderilemedi.');
     } finally {
