@@ -5,14 +5,18 @@ import {
   Plus, Trash2, Copy, LogOut, Shield, CreditCard, Mail, User, Check, 
   Eye, X, Search, Sun, Moon, Wand2, Bell, RotateCcw, ArrowLeft,
   ListChecks, CheckSquare, Square, ChevronDown, Loader2,
-  ShieldAlert, ShieldCheck, Zap, Activity, Clock, AlertTriangle
+  ShieldAlert, ShieldCheck, Zap, Activity, Clock, AlertTriangle, Download, Key
 } from 'lucide-react';
 import { encryptData, decryptData } from '@/lib/crypto';
 import { auth, db } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword, verifyBeforeUpdateEmail, onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 
 export default function Dashboard() {
+  // --- GÜVENLİK VE YÜKLEME STATE'LERİ ---
+  const [authChecking, setAuthChecking] = useState(true); // Sayfa açılışında kontrol aktif
+  
   // --- TEMEL STATE'LER ---
   const [passwords, setPasswords] = useState<any[]>([]);
   const [darkMode, setDarkMode] = useState(true);
@@ -26,13 +30,19 @@ export default function Dashboard() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
-  // --- MODERN MODALLAR ---
+  // --- MODALLAR ---
   const [confirmModal, setConfirmModal] = useState<{show: boolean, type: 'clear' | 'restore' | 'logout' | 'bulkDelete' | 'singleDelete' | null, targetId?: string}>({ show: false, type: null });
   const [isGenOpen, setIsGenOpen] = useState(false);
   const [genPass, setGenPass] = useState('');
   const [selectedPass, setSelectedPass] = useState<{val: string, site: string} | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [is2FAEnabled, setIs2FAEnabled] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
 
-  // --- FORM INPUTLARI & CUSTOM SELECT ---
+  // --- FORM INPUTLARI ---
   const [entryType, setEntryType] = useState('E-posta / Şifre');
   const [category, setCategory] = useState('Genel');
   const [reminderDays, setReminderDays] = useState('Yok');
@@ -48,7 +58,7 @@ export default function Dashboard() {
   const [dismissedReminders, setDismissedReminders] = useState<string[]>([]);
   
   const router = useRouter();
-  process.env.NEXT_PUBLIC_VAULT_KEY
+  const VAULT_KEY = "kasaos-internal-secure-key"; 
   const categories = ['Genel', 'Sosyal', 'İş', 'Finans', 'Alışveriş'];
   const entryTypes = ['E-posta / Şifre', 'Banka / Kart'];
   const reminderOptions = ['Yok', '30 Gün', '60 Gün', '90 Gün'];
@@ -65,26 +75,37 @@ export default function Dashboard() {
     setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 4000);
   }, []);
 
+  // --- KRİTİK: AUTH VE VERİ DİNLEYİCİSİ ---
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.replace('/'); // replace kullanarak geri gitmeyi de engelliyoruz
+      } else {
+        // Kullanıcı varsa verileri dinlemeye başla
+        const q = query(collection(db, "passwords"), where("userId", "==", user.uid));
+        const unsubSnap = onSnapshot(q, (snap) => {
+          setPasswords(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+          setAuthChecking(false); // Veriler gelince yükleme ekranını kapat
+        });
+        
+        // 2FA durumunu yükle
+        const saved2FA = localStorage.getItem('kasaos_2fa_status');
+        if (saved2FA === 'true') setIs2FAEnabled(true);
+
+        return () => unsubSnap();
+      }
+    });
+
+    return () => unsubAuth();
+  }, [router]);
+
   // --- PANIC MODE ---
   const handlePanic = () => {
     auth.signOut();
     window.location.href = "https://www.google.com";
   };
 
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged((user) => {
-      if (!user) router.push('/');
-      else {
-        const q = query(collection(db, "passwords"), where("userId", "==", user.uid));
-        const unsubSnap = onSnapshot(q, (snap) => {
-          setPasswords(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-        });
-        return () => unsubSnap();
-      }
-    });
-    return () => unsub();
-  }, [router]);
-
+  // --- YARDIMCI FONKSİYONLAR ---
   const getPassStrength = (pass: string) => {
     if (!pass) return { score: 0, color: 'bg-slate-500', label: 'Yok' };
     const dec = decryptData(pass, VAULT_KEY);
@@ -99,7 +120,6 @@ export default function Dashboard() {
     return { score, color: 'bg-emerald-500', label: 'GÜÇLÜ' };
   };
 
-  // --- DASHBOARD STATS ---
   const stats = useMemo(() => {
     const active = passwords.filter(p => !p.deleted);
     const risks = active.filter(p => getPassStrength(p.password).score <= 2).length;
@@ -107,7 +127,6 @@ export default function Dashboard() {
     return { total: active.length, risks, health };
   }, [passwords]);
 
-  // --- HATIRLATICI KONTROLÜ ---
   const expiredPasswords = useMemo(() => {
     return passwords.filter(p => {
       if (!p.reminder || p.reminder === 'Yok' || p.deleted || dismissedReminders.includes(p.id)) return false;
@@ -164,11 +183,58 @@ export default function Dashboard() {
         reminder: reminderDays,
         userId: auth.currentUser?.uid, createdAt: serverTimestamp(), deleted: false
       });
-      setTimeout(() => {
-        setSiteName(''); setField1(''); setSitePass(''); setReminderDays('Yok');
-        setIsAdding(false); notify("Şifre kilitlendi!");
-      }, 600);
+      setSiteName(''); setField1(''); setSitePass(''); setReminderDays('Yok');
+      setIsAdding(false); notify("Şifre kilitlendi!");
     } catch { setIsAdding(false); notify("Bağlantı hatası!"); }
+  };
+
+  const handleUpdateEmail = async () => {
+    if (!newEmail || !currentPassword) return notify("Hata: Eksik bilgi.");
+    setProfileLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user || !user.email) return;
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await verifyBeforeUpdateEmail(user, newEmail);
+      notify("Onay maili gönderildi.");
+      setNewEmail(''); setCurrentPassword('');
+    } catch (err) { notify("Hata: Şifre yanlış."); }
+    finally { setProfileLoading(false); }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword || !currentPassword) return notify("Hata: Eksik bilgi.");
+    setProfileLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user || !user.email) return;
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPassword);
+      notify("Master şifre güncellendi!");
+      setCurrentPassword(''); setNewPassword('');
+    } catch (err) { notify("Hata: Mevcut şifre yanlış."); }
+    finally { setProfileLoading(false); }
+  };
+
+  const handleToggle2FA = () => {
+    const nextState = !is2FAEnabled;
+    setIs2FAEnabled(nextState);
+    localStorage.setItem('kasaos_2fa_status', String(nextState));
+    notify(nextState ? "2FA Aktif." : "2FA Devre dışı.");
+  };
+
+  const handleExportVault = () => {
+    const activeData = passwords.filter(p => !p.deleted).map(p => ({
+      site: p.site, kullanici: p.field1, sifre: decryptData(p.password, VAULT_KEY), kategori: p.category
+    }));
+    const dataStr = JSON.stringify(activeData, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = `KasaOS_Yedek.json`; link.click();
+    notify("Yedek dışa aktarıldı!");
   };
 
   const filteredData = useMemo(() => {
@@ -186,6 +252,21 @@ export default function Dashboard() {
     for (let i = 0; i < 18; i++) p += chars.charAt(Math.floor(Math.random() * chars.length));
     setGenPass(p);
   };
+
+  // --- GÜVENLİK BARİYERİ: KONTROL BİTMEDEN SAYFAYI GÖSTERME ---
+  if (authChecking) {
+    return (
+      <div className="fixed inset-0 bg-[#030712] flex flex-col items-center justify-center z-[9999]">
+         <div className="w-24 h-24 bg-blue-600 rounded-[2rem] flex items-center justify-center animate-pulse mb-8 shadow-2xl shadow-blue-600/20">
+            <Shield className="text-white" size={40} />
+         </div>
+         <div className="flex flex-col items-center gap-2">
+            <Loader2 className="animate-spin text-blue-500" size={32} />
+            <p className="text-blue-500 font-black text-[10px] uppercase tracking-[0.4em]">KasaOS Güvenlik Doğrulaması...</p>
+         </div>
+      </div>
+    );
+  }
 
   return (
     <main className={`${darkMode ? 'bg-[#030712]' : 'bg-slate-50'} ${textColor} min-h-screen p-4 md:p-12 transition-all duration-500`}>
@@ -240,12 +321,17 @@ export default function Dashboard() {
             </button>
             <button onClick={() => setShowNotifHistory(true)} className={`p-4.5 rounded-[1.5rem] border ${inputBg} relative hover:scale-105`}><Bell size={22} /> {notifHistory.length > 0 && <span className="absolute top-4 right-4 w-2 h-2 bg-blue-500 rounded-full" />}</button>
             <button onClick={() => setShowTrash(!showTrash)} className={`p-4.5 rounded-[1.5rem] border transition-all hover:scale-105 ${showTrash ? 'bg-red-500 text-white shadow-xl shadow-red-500/20' : inputBg}`}><Trash2 size={22} /></button>
+            
+            <button onClick={() => setIsProfileOpen(true)} className={`p-4.5 rounded-[1.5rem] border ${inputBg} hover:scale-105 transition-all`}>
+              <User size={22} className="text-blue-500" />
+            </button>
+
             <button onClick={() => setDarkMode(!darkMode)} className={`p-4.5 rounded-[1.5rem] border ${inputBg} hover:rotate-12 transition-all`}>{darkMode ? <Sun size={22} /> : <Moon size={22} />}</button>
             <button onClick={() => setConfirmModal({ show: true, type: 'logout' })} className="p-4.5 bg-red-500/10 text-red-500 rounded-[1.5rem] border border-red-500/20 hover:bg-red-500 hover:text-white transition-all"><LogOut size={22}/></button>
           </div>
         </header>
 
-        {/* --- 1. DASHBOARD STATS --- */}
+        {/* --- STATS --- */}
         {!showTrash && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             <div className={`${darkMode ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200'} p-8 rounded-[3rem] border flex items-center gap-6 shadow-sm`}>
@@ -277,7 +363,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* --- ÇÖP KUTUSU ÖZEL KONTROLLER --- */}
+        {/* --- TRASH CONTROLS --- */}
         <AnimatePresence>
           {showTrash && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
@@ -298,7 +384,7 @@ export default function Dashboard() {
           )}
         </AnimatePresence>
 
-        {/* --- KATEGORİ SEÇİCİ --- */}
+        {/* --- CATEGORIES --- */}
         {!showTrash && (
           <div className="flex gap-3 mb-10 overflow-x-auto pb-4 no-scrollbar">
             {['Hepsi', ...categories].map(cat => (
@@ -311,7 +397,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* --- KAYIT FORMU (Modern Custom Selects & Reminder) --- */}
+        {/* --- ADD FORM --- */}
         {!showTrash && !isSelectionMode && (
           <motion.div layout className={`${darkMode ? 'bg-[#0f172a]/90 border-white/5' : 'bg-white border-slate-200 shadow-2xl'} border p-8 rounded-[4rem] mb-16 backdrop-blur-3xl`}>
             <div className="flex flex-col lg:flex-row gap-6 mb-6">
@@ -385,7 +471,7 @@ export default function Dashboard() {
           </motion.div>
         )}
 
-        {/* --- KARTLAR LİSTESİ --- */}
+        {/* --- CARDS LIST --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <AnimatePresence mode='popLayout'>
             {filteredData.map((item) => {
@@ -396,7 +482,6 @@ export default function Dashboard() {
                   onClick={() => isSelectionMode && (isSelected ? setSelectedIds(s => s.filter(i => i !== item.id)) : setSelectedIds(s => [...s, item.id]))}
                   className={`p-10 rounded-[4rem] border transition-all cursor-pointer relative group ${isSelected ? 'border-blue-600 bg-blue-600/10' : darkMode ? 'bg-[#1e293b]/40 border-white/5 hover:bg-[#1e293b]/60' : 'bg-white border-slate-200 shadow-xl'}`}>
                   
-                  {/* GÜÇ GÖSTERGESİ (Sola Kaydırılmış & Hizalı) */}
                   {!isSelectionMode && !showTrash && (
                     <div className="absolute top-11 right-28 flex flex-col items-center">
                       <div className={`w-3.5 h-3.5 rounded-full ${strength.color} ring-4 ring-${strength.color.split('-')[1]}-500/20 mb-1.5 shadow-lg`} />
@@ -443,7 +528,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* --- SEÇİM ÇUBUĞU (Sil / İptal) --- */}
+      {/* --- SEÇİM ÇUBUĞU --- */}
       <AnimatePresence>
         {isSelectionMode && (
           <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
@@ -461,14 +546,14 @@ export default function Dashboard() {
                   className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${selectedIds.length > 0 ? 'bg-red-600 text-white shadow-lg shadow-red-600/20 active:scale-95' : 'opacity-30 cursor-not-allowed bg-slate-500/20'}`}>
                   Seçilenleri Sil
                 </button>
-                <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border ${inputBg} hover:bg-slate-500/10 transition-all active:scale-95`}>İptal / Kapat</button>
+                <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border ${inputBg} hover:bg-slate-500/10 transition-all active:scale-95`}>İptal</button>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* --- ONAY MODALI (Emin Misiniz?) --- */}
+      {/* --- ONAY MODALI --- */}
       <AnimatePresence>
         {confirmModal.show && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
@@ -479,7 +564,7 @@ export default function Dashboard() {
                 <ShieldAlert size={48}/>
               </div>
               <h2 className="text-4xl font-black mb-4 tracking-tighter italic uppercase">Onay Gerekli</h2>
-              <p className="opacity-50 mb-12 font-bold text-sm tracking-tight leading-relaxed">Bu işlemi gerçekleştirmek istediğinizden emin misiniz? Bu işlem geri alınamayabilir.</p>
+              <p className="opacity-50 mb-12 font-bold text-sm tracking-tight leading-relaxed">Bu işlemi gerçekleştirmek istediğinizden emin misiniz?</p>
               <div className="flex gap-4">
                 <button onClick={() => setConfirmModal({show:false, type:null})} className={`flex-1 py-6 rounded-[2.5rem] font-black text-xs tracking-widest ${inputBg} opacity-60 hover:opacity-100 uppercase transition-all active:scale-95`}>Vazgeç</button>
                 <button onClick={executeConfirmAction} className={`flex-1 py-6 rounded-[2.5rem] font-black text-xs text-white tracking-widest uppercase shadow-2xl transition-all active:scale-95 ${confirmModal.type?.includes('Delete') || confirmModal.type === 'clear' ? 'bg-red-600 shadow-red-600/20' : 'bg-blue-600 shadow-blue-600/20'}`}>Evet, Onayla</button>
@@ -489,31 +574,73 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- ŞİFRE GÖRÜNTÜLEME MODALI --- */}
+      {/* --- PROFİL MODALI --- */}
+      <AnimatePresence>
+        {isProfileOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsProfileOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className={`relative w-full max-w-xl border rounded-[5rem] p-12 md:p-16 shadow-4xl ${darkMode ? 'bg-[#111827] border-white/10' : 'bg-white border-slate-200'}`}>
+              <button onClick={() => setIsProfileOpen(false)} className="absolute top-10 right-10 p-3 text-slate-500 hover:text-red-500 rounded-full transition-all"><X size={28}/></button>
+              <div className="flex items-center gap-5 mb-10">
+                <div className="w-16 h-16 bg-blue-600/10 text-blue-500 rounded-[2rem] flex items-center justify-center font-bold shadow-inner"><User size={32} /></div>
+                <div>
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase">Hesap & Güvenlik</h2>
+                  <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{auth.currentUser?.email}</p>
+                </div>
+              </div>
+              <div className={`p-6 rounded-[2.5rem] border mb-8 ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
+                <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest mb-3 flex items-center gap-2"><Key size={14} /> Yetki Doğrulaması (Zorunlu)</p>
+                <input type="password" placeholder="Mevcut Master Şifreniz" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className={`w-full p-4 rounded-[1.8rem] border outline-none font-bold text-xs transition-all focus:border-blue-500 ${inputBg} ${textColor}`} />
+              </div>
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+                  <input type="email" placeholder="Yeni E-posta" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={`flex-1 p-4 rounded-[1.8rem] border outline-none font-bold text-xs transition-all focus:border-blue-500 ${inputBg} ${textColor}`} />
+                  <button onClick={handleUpdateEmail} disabled={profileLoading || !newEmail || !currentPassword} className="px-6 py-4 bg-blue-600 text-white rounded-[1.8rem] font-black text-[10px] uppercase tracking-widest hover:bg-blue-500 disabled:opacity-40 transition-all active:scale-95">Mail Değiştir</button>
+                </div>
+                <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+                  <input type="password" placeholder="Yeni Master Şifre" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={`flex-1 p-4 rounded-[1.8rem] border outline-none font-bold text-xs transition-all focus:border-blue-500 ${inputBg} ${textColor}`} />
+                  <button onClick={handleUpdatePassword} disabled={profileLoading || !newPassword || !currentPassword} className="px-6 py-4 bg-blue-600 text-white rounded-[1.8rem] font-black text-[10px] uppercase tracking-widest hover:bg-blue-500 disabled:opacity-40 transition-all active:scale-95">Şifre Değiştir</button>
+                </div>
+                <div className="pt-4 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
+                  <button onClick={handleToggle2FA} className={`flex-1 w-full py-4 px-6 rounded-[1.8rem] border font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95 ${is2FAEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : `${inputBg} opacity-60 hover:opacity-100`}`}>
+                    <ShieldCheck size={16} /> {is2FAEnabled ? "2FA: Aktif" : "2FA Aç"}
+                  </button>
+                  <button onClick={handleExportVault} className="flex-1 w-full py-4 px-6 bg-blue-500/10 border border-blue-500/20 text-blue-500 hover:bg-blue-600 hover:text-white rounded-[1.8rem] font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95">
+                    <Download size={16} /> Yedekle
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- VIEW PASSWORD MODAL --- */}
       <AnimatePresence>
         {selectedPass && (
           <div className="fixed inset-0 z-[900] flex items-center justify-center p-6 text-center">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedPass(null)} className="absolute inset-0 bg-black/95 backdrop-blur-3xl" />
-            <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.7, opacity: 0 }}
               className={`relative w-full max-w-2xl border rounded-[6rem] p-20 ${darkMode ? 'bg-[#0f172a] border-white/10' : 'bg-white border-slate-200 shadow-4xl'}`}>
               <button onClick={() => setSelectedPass(null)} className="absolute top-14 right-14 text-slate-500 hover:text-red-500 transition-all p-4 rounded-full"><X size={42}/></button>
               <h2 className="text-5xl font-black mb-6 tracking-tighter italic text-blue-600 uppercase">{selectedPass.site}</h2>
               <div className={`p-16 rounded-[4rem] mb-16 font-mono text-5xl break-all tracking-[0.4em] shadow-inner ${darkMode ? 'bg-black/60 text-emerald-400' : 'bg-slate-100 text-blue-700'}`}>
                 {selectedPass.val}
               </div>
-              <button onClick={() => { navigator.clipboard.writeText(selectedPass.val); notify("Şifre panoya kopyalandı!"); }} 
+              <button onClick={() => { navigator.clipboard.writeText(selectedPass.val); notify("Şifre kopyalandı!"); }} 
                 className="w-full bg-blue-600 py-10 rounded-[3rem] font-black text-sm text-white shadow-3xl active:scale-95 flex items-center justify-center gap-5 uppercase tracking-widest"><Copy size={36}/> Panoya Kopyala</button>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* --- ŞİFRE ÜRETİCİ MODALI --- */}
+      {/* --- PASSWORD GENERATOR --- */}
       <AnimatePresence>
         {isGenOpen && (
           <div className="fixed inset-0 z-[900] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsGenOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className={`relative w-full max-w-md border rounded-[5rem] p-16 text-center shadow-4xl ${darkMode ? 'bg-[#111827] border-white/10' : 'bg-white border-slate-200'}`}>
               <div className="w-28 h-28 bg-blue-600/10 rounded-[3rem] flex items-center justify-center mx-auto mb-10"><Wand2 className="text-blue-500" size={56} /></div>
               <h2 className={`text-4xl font-black mb-10 italic tracking-tighter uppercase ${textColor}`}>Şifre Üretici</h2>
@@ -527,7 +654,40 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- BİLDİRİM GEÇMİŞİ --- */}
+{/* --- CANLI BİLDİRİM TOAST SİSTEMİ (SAĞ ÜST) --- */}
+      <div className="fixed top-10 right-10 z-[2000] flex flex-col gap-4 pointer-events-none">
+        <AnimatePresence>
+          {notifications.map((n) => (
+            <motion.div
+              key={n.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
+              className={`pointer-events-auto p-6 rounded-[2rem] border shadow-4xl min-w-[320px] flex items-center gap-4 backdrop-blur-2xl ${
+                darkMode 
+                  ? 'bg-[#1e293b]/90 border-blue-500/30 text-white shadow-blue-500/10' 
+                  : 'bg-white border-blue-200 text-slate-900 shadow-xl'
+              }`}
+            >
+              <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-600/20">
+                <Bell size={24} className="text-white animate-bounce" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 mb-1">Sistem Mesajı</p>
+                <p className="font-bold text-sm leading-tight tracking-tight">{n.msg}</p>
+              </div>
+              <button 
+                onClick={() => setNotifications(prev => prev.filter(notif => notif.id !== n.id))}
+                className="p-2 hover:bg-slate-500/10 rounded-full transition-colors"
+              >
+                <X size={18} className="opacity-40" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* --- BİLDİRİM GEÇMİŞİ (SAĞ PANEL) --- */}
       <AnimatePresence>
         {showNotifHistory && (
           <>
@@ -539,13 +699,17 @@ export default function Dashboard() {
                 <button onClick={() => setShowNotifHistory(false)} className="p-4 hover:bg-red-500/10 text-red-500 rounded-full transition-all"><X size={32}/></button>
               </div>
               <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-200px)] pr-4 custom-scrollbar">
-                {notifHistory.length === 0 ? <p className="text-center opacity-30 py-20 font-bold italic">Kayıt bulunamadı.</p> : notifHistory.map(h => (
-                  <div key={h.id} className={`p-8 rounded-[2.5rem] border relative overflow-hidden transition-all hover:scale-[1.02] ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
-                    <div className="absolute left-0 top-0 w-1.5 h-full bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.5)]"></div>
-                    <p className={`font-black text-sm tracking-tight mb-3 ${textColor}`}>{h.msg}</p>
-                    <span className="text-[10px] opacity-30 font-black tracking-widest">{h.time}</span>
-                  </div>
-                ))}
+                {notifHistory.length === 0 ? (
+                  <p className="text-center opacity-30 py-20 font-bold italic">Kayıt yok.</p>
+                ) : (
+                  notifHistory.map(h => (
+                    <div key={h.id} className={`p-8 rounded-[2.5rem] border relative overflow-hidden transition-all hover:scale-[1.02] ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="absolute left-0 top-0 w-1.5 h-full bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.5)]"></div>
+                      <p className={`font-black text-sm tracking-tight mb-3 ${textColor}`}>{h.msg}</p>
+                      <span className="text-[10px] opacity-30 font-black tracking-widest">{h.time}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </motion.div>
           </>
